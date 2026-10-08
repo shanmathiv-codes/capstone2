@@ -1,0 +1,12 @@
+llama-index
+llama-index-embeddings-huggingface
+llama-index-llms-openai
+sentence-transformers
+python-dotenv
+litellm
+langgraph
+langchain
+langchain-openai
+google-adk
+crewai
+streamlit
