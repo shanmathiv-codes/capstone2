@@ -34,6 +34,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from orchestration.state import AgentState
+from orchestration.evidence import (
+    build_policy_evidence,
+    build_sql_analytics_evidence,
+    build_tower_diagnostics_evidence,
+    build_billing_evidence,
+    enrich_evidence_manifest,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -280,18 +287,22 @@ def policy_rag_node(state: AgentState) -> dict:
     logger.info("PolicyRAG executing query: %s", user_query)
 
     try:
-        from llamaindex_rag.document_rag import answer_policy_question
-        output = answer_policy_question(user_query)
+        from llamaindex_rag.document_rag import query_policy_with_evidence
+        res = query_policy_with_evidence(user_query)
+        output = res.get("answer", "")
+        evidence_item = res.get("evidence", build_policy_evidence(user_query))
     except Exception as exc:
         logger.exception("PolicyRAG execution failed")
         output = f"PolicyRAG Error: {exc}"
+        evidence_item = build_policy_evidence(user_query)
 
     output_str = str(output).strip()
     truncated_output = output_str[:500] + "..." if len(output_str) > 500 else output_str
 
     trace_entry = {
         "worker": "PolicyRAG",
-        "output": truncated_output,
+        "output": output_str,
+        "summary": truncated_output,
     }
 
     prior_context = state.get("agent_context", "").strip()
@@ -301,9 +312,13 @@ def policy_rag_node(state: AgentState) -> dict:
         else f"[PolicyRAG Findings]:\n{output_str}"
     )
 
+    prior_evidence = list(state.get("evidence", []))
+    prior_evidence.append(evidence_item)
+
     return {
         "agent_context": new_context,
         "execution_trace": state.get("execution_trace", []) + [trace_entry],
+        "evidence": prior_evidence,
         "messages": [AIMessage(content=f"[PolicyRAG]: {truncated_output}")],
     }
 
@@ -318,18 +333,22 @@ def network_analytics_node(state: AgentState) -> dict:
     logger.info("NetworkAnalytics executing query: %s", user_query)
 
     try:
-        from llamaindex_rag.sql_semantic_search import answer_sql_question
-        output = answer_sql_question(user_query)
+        from llamaindex_rag.sql_semantic_search import query_sql_with_evidence
+        res = query_sql_with_evidence(user_query)
+        output = res.get("answer", "")
+        evidence_item = res.get("evidence", build_sql_analytics_evidence(user_query))
     except Exception as exc:
         logger.exception("NetworkAnalytics execution failed")
         output = f"NetworkAnalytics Error: {exc}"
+        evidence_item = build_sql_analytics_evidence(user_query)
 
     output_str = str(output).strip()
     truncated_output = output_str[:500] + "..." if len(output_str) > 500 else output_str
 
     trace_entry = {
         "worker": "NetworkAnalytics",
-        "output": truncated_output,
+        "output": output_str,
+        "summary": truncated_output,
     }
 
     prior_context = state.get("agent_context", "").strip()
@@ -339,9 +358,13 @@ def network_analytics_node(state: AgentState) -> dict:
         else f"[NetworkAnalytics Findings]:\n{output_str}"
     )
 
+    prior_evidence = list(state.get("evidence", []))
+    prior_evidence.append(evidence_item)
+
     return {
         "agent_context": new_context,
         "execution_trace": state.get("execution_trace", []) + [trace_entry],
+        "evidence": prior_evidence,
         "messages": [AIMessage(content=f"[NetworkAnalytics]: {truncated_output}")],
     }
 
@@ -370,12 +393,15 @@ def network_diagnostics_adk_node(state: AgentState) -> dict:
         logger.exception("NetworkDiagnosticsADK invocation failed")
         output = f"NetworkDiagnosticsADK Error: {exc}"
 
+    evidence_item = build_tower_diagnostics_evidence(user_query)
+
     output_str = str(output).strip()
     truncated_output = output_str[:500] + "..." if len(output_str) > 500 else output_str
 
     trace_entry = {
         "worker": "NetworkDiagnosticsADK",
-        "output": truncated_output,
+        "output": output_str,
+        "summary": truncated_output,
     }
 
     prior_context = state.get("agent_context", "").strip()
@@ -385,9 +411,13 @@ def network_diagnostics_adk_node(state: AgentState) -> dict:
         else f"[NetworkDiagnosticsADK Findings]:\n{output_str}"
     )
 
+    prior_evidence = list(state.get("evidence", []))
+    prior_evidence.append(evidence_item)
+
     return {
         "agent_context": new_context,
         "execution_trace": state.get("execution_trace", []) + [trace_entry],
+        "evidence": prior_evidence,
         "messages": [AIMessage(content=f"[NetworkDiagnosticsADK]: {truncated_output}")],
     }
 
@@ -416,12 +446,15 @@ def billing_resolution_adk_node(state: AgentState) -> dict:
         logger.exception("BillingResolutionADK invocation failed")
         output = f"BillingResolutionADK Error: {exc}"
 
+    evidence_item = build_billing_evidence(user_query)
+
     output_str = str(output).strip()
     truncated_output = output_str[:500] + "..." if len(output_str) > 500 else output_str
 
     trace_entry = {
         "worker": "BillingResolutionADK",
-        "output": truncated_output,
+        "output": output_str,
+        "summary": truncated_output,
     }
 
     prior_context = state.get("agent_context", "").strip()
@@ -431,9 +464,13 @@ def billing_resolution_adk_node(state: AgentState) -> dict:
         else f"[BillingResolutionADK Findings]:\n{output_str}"
     )
 
+    prior_evidence = list(state.get("evidence", []))
+    prior_evidence.append(evidence_item)
+
     return {
         "agent_context": new_context,
         "execution_trace": state.get("execution_trace", []) + [trace_entry],
+        "evidence": prior_evidence,
         "messages": [AIMessage(content=f"[BillingResolutionADK]: {truncated_output}")],
     }
 
@@ -463,12 +500,14 @@ def customer_comms_crew_node(state: AgentState) -> dict:
 
     trace_entry = {
         "worker": "CustomerCommsCrew",
-        "output": truncated_output,
+        "output": output_str,
+        "summary": truncated_output,
     }
 
     return {
         "final_response": output_str,
         "execution_trace": state.get("execution_trace", []) + [trace_entry],
+        "evidence": state.get("evidence", []),
         "messages": [AIMessage(content=f"[CustomerCommsCrew]: {truncated_output}")],
     }
 
@@ -549,6 +588,7 @@ def run_telecom_assistant(user_query: str) -> dict:
         "agent_context": "",
         "execution_trace": [],
         "final_response": "",
+        "evidence": [],
     }
 
     try:
@@ -559,10 +599,19 @@ def run_telecom_assistant(user_query: str) -> dict:
         if not final_resp:
             final_resp = final_state.get("agent_context", "Inquiry processed successfully.")
 
+        execution_trace = final_state.get("execution_trace", [])
+        evidence_list = enrich_evidence_manifest(
+            user_query=user_query.strip(),
+            execution_trace=execution_trace,
+            current_evidence=final_state.get("evidence", []),
+            agent_context=final_state.get("agent_context", ""),
+        )
+
         return {
             "final_response": final_resp,
-            "execution_trace": final_state.get("execution_trace", []),
+            "execution_trace": execution_trace,
             "agent_context": final_state.get("agent_context", ""),
+            "evidence": evidence_list,
         }
     except Exception as exc:
         logger.exception("run_telecom_assistant failed")
@@ -570,6 +619,7 @@ def run_telecom_assistant(user_query: str) -> dict:
             "final_response": f"An error occurred while processing your request: {exc}",
             "execution_trace": initial_state.get("execution_trace", []),
             "agent_context": str(exc),
+            "evidence": enrich_evidence_manifest(user_query.strip(), []),
         }
 
 
